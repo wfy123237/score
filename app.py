@@ -177,11 +177,27 @@ def render_blind_slider(label, key):
 # ================= 5. 主程序 =================
 
 def main():
-    st.set_page_config(page_title="Underwater Aesthetics", layout="wide")
+    # 1. 【修改】增加 initial_sidebar_state="expanded"，强制侧边栏默认就是打开的
+    st.set_page_config(
+        page_title="Underwater Aesthetics",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    # 2. 【修改】删除了隐藏 header 的那行 CSS，只保留隐藏滑块数字和调整间距的
     st.markdown("""
         <style>
-        header[data-testid="stHeader"] { display: none !important; }
-        div[data-testid="stThumbValue"], div[data-testid="stTickBarMin"], div[data-testid="stTickBarMax"] { opacity: 0 !important; display: none !important; }
+        /* 注意：我删掉了隐藏 header 的代码，现在箭头回来了 */
+
+        /* 隐藏滑块的数字 */
+        div[data-testid="stThumbValue"], 
+        div[data-testid="stTickBarMin"], 
+        div[data-testid="stTickBarMax"] {
+            opacity: 0 !important;
+            display: none !important;
+        }
+
+        .current-rating { font-size: 1.1rem; font-weight: bold; color: #FF4B4B; margin-bottom: 5px; }
         .block-container { padding-top: 20px !important; padding-bottom: 2rem !important; }
         div[data-testid="stImage"] { display: flex; justify-content: center; }
         div[data-testid="stForm"] { border: none; padding: 0; }
