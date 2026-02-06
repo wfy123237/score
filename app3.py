@@ -6,14 +6,12 @@ import time
 from datetime import datetime
 
 # ================= 配置区域 =================
-# 阿里云 OSS 图片前缀
 CLOUD_BASE_URL = "https://score-1.oss-cn-beijing.aliyuncs.com/Image_3600/"
 
 
-# ================= 1. 数据库连接 (MySQL/TiDB) =================
+# ================= 1. 数据库连接 =================
 
 def get_db_connection():
-    # 从 Streamlit Secrets 读取配置
     db_config = st.secrets["connections"]["tidb"]
     return mysql.connector.connect(
         host=db_config["host"],
@@ -26,7 +24,6 @@ def get_db_connection():
 
 
 def init_db():
-    """初始化数据库表"""
     try:
         conn = get_db_connection()
         c = conn.cursor()
@@ -65,10 +62,10 @@ def init_db():
 try:
     init_db()
 except Exception as e:
-    st.error(f"数据库连接失败，请检查 Secrets 配置。错误信息: {e}")
+    st.error(f"数据库连接失败: {e}")
 
 
-# ================= 2. 核心逻辑功能 =================
+# ================= 2. 核心逻辑 =================
 
 def get_cloud_image_list(user_id, group_id_str):
     txt_file = "image_names.txt"
@@ -135,18 +132,20 @@ def save_to_db(user_id, group_id, img_path, s1, s2, s3):
             conn.close()
 
 
-# ================= 4. UI 组件封装 (Form版 + CSS修复) =================
+# ================= 3. UI 组件 (无状态渲染) =================
 
-def render_blind_slider(label, key):
+def render_blind_slider(label, unique_key):
     """
-    渲染去数字化的盲测滑块 - 适配 Form 模式
+    渲染滑块。
+    unique_key: 必须是随图片变化的唯一值，这样切图时滑块会自动重置，防止报错。
     """
-    # 【核心修改点】：使用 HTML div + white-space: nowrap 强制文字不换行
+    # 强制文字不换行 CSS
     st.markdown(f"""
         <div style="
             font-size: 1.1rem; 
             font-weight: 600; 
             white-space: nowrap; 
+            overflow: visible;
             margin-bottom: 5px;
             color: white; 
         ">
@@ -154,20 +153,21 @@ def render_blind_slider(label, key):
         </div>
         """, unsafe_allow_html=True)
 
+    # 这里的 key 是动态的 (例如 s_content_5)，所以每次换图都是一个新控件
+    # 默认值 50，无需手动 session_state 赋值
     val = st.slider(
-        label, 0, 100,
-        key=key,
+        label, 0, 100, 50,
+        key=unique_key,
         label_visibility="collapsed",
         format=" "
     )
 
-    # HTML 精准刻度尺
     html_oneline = "<div style='position: relative; width: 100%; height: 30px; margin-top: -25px; font-size: 0.8rem; color: #888; line-height: 1.1; pointer-events: none;'><div style='position: absolute; left: 0%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>极差</div><div style='position: absolute; left: 25%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>差</div><div style='position: absolute; left: 50%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>中等</div><div style='position: absolute; left: 75%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>好</div><div style='position: absolute; left: 100%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>极好</div></div>"
     st.markdown(html_oneline, unsafe_allow_html=True)
-    return val
+    return val  # 虽然在 Form 里用不到返回值，但保持逻辑完整
 
 
-# ================= 5. 主程序 =================
+# ================= 4. 主程序 =================
 
 def main():
     st.set_page_config(page_title="Underwater Aesthetics", layout="wide")
@@ -175,28 +175,16 @@ def main():
     st.markdown("""
         <style>
         header[data-testid="stHeader"] { display: none !important; }
-
-        div[data-testid="stThumbValue"], 
-        div[data-testid="stTickBarMin"], 
-        div[data-testid="stTickBarMax"] { 
-            opacity: 0 !important; 
-            display: none !important; 
-        }
+        div[data-testid="stThumbValue"], div[data-testid="stTickBarMin"], div[data-testid="stTickBarMax"] { opacity: 0 !important; display: none !important; }
 
         .block-container { 
             padding-top: 1rem !important; 
             padding-bottom: 2rem !important; 
             max-width: 95% !important; 
         }
-
         div[data-testid="stImage"] { display: flex; justify-content: center; }
         div[data-testid="column"] { gap: 0.5rem; }
-
-        div.stButton > button {
-            width: 100%;
-            border-radius: 8px;
-            height: 3em;
-        }
+        div.stButton > button { width: 100%; border-radius: 8px; height: 3em; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -227,10 +215,6 @@ def main():
             start_idx = len(img_list) - 1
         st.session_state['current_index'] = start_idx
 
-        if 's_content' not in st.session_state: st.session_state['s_content'] = 50
-        if 's_aesthetic' not in st.session_state: st.session_state['s_aesthetic'] = 50
-        if 's_quality' not in st.session_state: st.session_state['s_quality'] = 50
-
     img_list = st.session_state['image_list']
     idx = st.session_state['current_index']
 
@@ -240,10 +224,9 @@ def main():
 
     current_img_rel_path = img_list[idx]
 
-    # --- 1. 图片显示区域 ---
+    # --- 图片显示 (Form外) ---
     try:
         full_image_url = CLOUD_BASE_URL + current_img_rel_path
-
         col1, col2, col3 = st.columns([1, 10, 1])
         with col2:
             st.image(full_image_url, width="stretch")
@@ -252,53 +235,58 @@ def main():
 
     st.markdown("---")
 
-    # ================= Form 包裹区域 (解决卡顿) =================
-    with st.form(key="rating_form"):
+    # --- 评分表单 ---
+    # 使用 Form 解决卡顿问题
+    with st.form(key=f"rating_form_{idx}"):  # Form key 也可以动态，确保完全隔离
 
-        # 这里的列比例 [10, 1, 10, 1, 10]
-        # 配合上面的 white-space: nowrap 修改，可以保证标题不换行
         c1, spacer1, c2, spacer2, c3 = st.columns([10, 1, 10, 1, 10])
 
+        # 关键修改：Key 绑定了当前的 idx
+        # 当 idx 改变时，Key 改变，Streamlit 自动创建新滑块（默认值50），无需手动重置！
+        # 从而避免了 StreamlitAPIException
+        k_content = f"s_content_{idx}"
+        k_aesthetic = f"s_aesthetic_{idx}"
+        k_quality = f"s_quality_{idx}"
+
         with c1:
-            render_blind_slider("1. 内容 (Content)", "s_content")
+            render_blind_slider("1. 内容 (Content)", k_content)
         with spacer1:
             st.empty()
         with c2:
-            render_blind_slider("2. 美学 (Aesthetics)", "s_aesthetic")
+            render_blind_slider("2. 美学 (Aesthetics)", k_aesthetic)
         with spacer2:
             st.empty()
         with c3:
-            render_blind_slider("3. 质量 (Quality)", "s_quality")
+            render_blind_slider("3. 质量 (Quality)", k_quality)
 
         st.write("")
 
-        # --- 按钮区域 ---
         b1, b2, b3 = st.columns([1, 2, 1])
-
         with b1:
             if idx > 0:
                 prev_clicked = st.form_submit_button("⬅️ 上一张", width="stretch")
             else:
                 prev_clicked = False
                 st.empty()
-
         with b3:
             next_clicked = st.form_submit_button("下一张 ➡️", type="primary", width="stretch")
 
-    # ================= 逻辑处理区 =================
+    # --- 逻辑处理 ---
 
     if next_clicked:
+        # 获取当前动态 Key 的值
+        val_content = st.session_state.get(k_content, 50)
+        val_aesthetic = st.session_state.get(k_aesthetic, 50)
+        val_quality = st.session_state.get(k_quality, 50)
+
         with st.spinner("Saving..."):
             save_to_db(user_id, group_id_ui, current_img_rel_path,
-                       st.session_state['s_content'],
-                       st.session_state['s_aesthetic'],
-                       st.session_state['s_quality'])
+                       val_content, val_aesthetic, val_quality)
 
         if st.session_state['current_index'] < len(img_list) - 1:
             st.session_state['current_index'] += 1
-            st.session_state['s_content'] = 50
-            st.session_state['s_aesthetic'] = 50
-            st.session_state['s_quality'] = 50
+            # 注意：这里不需要手动重置 session_state 了！
+            # 因为下一张图的 Key 是 s_content_{idx+1}，是全新的，自动就是 50。
             st.rerun()
         else:
             st.balloons()
