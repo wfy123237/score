@@ -31,7 +31,6 @@ def init_db():
     try:
         conn = get_db_connection()
         c = conn.cursor()
-        # MySQL 建表语法
         c.execute('''
                   CREATE TABLE IF NOT EXISTS annotations
                   (
@@ -61,7 +60,6 @@ def init_db():
                   ''')
         conn.close()
     except Exception as e:
-        # 为了不打断流程，这里仅打印错误，实际生产中需检查
         print(f"DB Init Error: {e}")
 
 
@@ -84,14 +82,12 @@ def get_cloud_image_list(user_id, group_id_str):
     with open(txt_file, "r", encoding="utf-8") as f:
         all_images = [line.strip() for line in f.readlines()]
 
-    # 分组逻辑
-    target_folder = group_id_str.replace(" ", "_")  # Group 1 -> Group_1
+    target_folder = group_id_str.replace(" ", "_")
     current_group_images = [img for img in all_images if img.startswith(target_folder + "/")]
 
     if not current_group_images:
         return []
 
-    # 随机打乱
     seed_val = sum(ord(c) for c in user_id)
     rng = random.Random(seed_val)
     rng.shuffle(current_group_images)
@@ -118,7 +114,6 @@ def save_to_db(user_id, group_id, img_path, s1, s2, s3):
     try:
         conn = get_db_connection()
         c = conn.cursor()
-
         query = """
                 REPLACE \
                 INTO annotations 
@@ -134,7 +129,6 @@ def save_to_db(user_id, group_id, img_path, s1, s2, s3):
                 )
                 """
         values = (user_id, group_id, img_path, s1, s2, s3, timestamp)
-
         c.execute(query, values)
         return True
     except Exception as e:
@@ -166,8 +160,7 @@ def show_warning_dialog():
 
 
 def render_blind_slider(label, key, touch_callback):
-    # 稍微减小字体 margin 以节省空间
-    st.markdown(f"<h5 style='margin-bottom:0px; padding-bottom:0px;'>{label}</h5>", unsafe_allow_html=True)
+    st.markdown(f"#### {label}")
     current_val = st.session_state.get(key, 50)
     rating_text = ""
     if 0 <= current_val <= 20:
@@ -181,11 +174,11 @@ def render_blind_slider(label, key, touch_callback):
     elif 81 <= current_val <= 100:
         rating_text = "极好"
 
-    st.markdown(f"<div class='current-rating' style='font-size: 0.9rem; margin-bottom: 0px;'>当前: {rating_text}</div>",
-                unsafe_allow_html=True)
+    st.markdown(f"<div class='current-rating'>当前评价: {rating_text}</div>", unsafe_allow_html=True)
     val = st.slider(label, 0, 100, key=key, label_visibility="collapsed", on_change=touch_callback, format=" ")
-    # 紧凑的刻度尺
-    html_oneline = "<div style='position: relative; width: 100%; height: 20px; margin-top: -20px; font-size: 0.7rem; color: #aaa; pointer-events: none;'><div style='position: absolute; left: 0%; transform: translateX(-50%);'>|<br>差</div><div style='position: absolute; left: 50%; transform: translateX(-50%);'>|<br>中</div><div style='position: absolute; left: 100%; transform: translateX(-50%);'>|<br>好</div></div>"
+
+    # --- 恢复：原本详细的刻度尺 HTML 代码 ---
+    html_oneline = "<div style='position: relative; width: 100%; height: 30px; margin-top: -25px; font-size: 0.8rem; color: #888; line-height: 1.1; pointer-events: none;'><div style='position: absolute; left: 0%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>极差</div><div style='position: absolute; left: 25%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>差</div><div style='position: absolute; left: 50%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>中等</div><div style='position: absolute; left: 75%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>好</div><div style='position: absolute; left: 100%; transform: translateX(-50%); text-align: center; white-space: nowrap;'>|<br>极好</div></div>"
     st.markdown(html_oneline, unsafe_allow_html=True)
     return val
 
@@ -195,25 +188,28 @@ def render_blind_slider(label, key, touch_callback):
 def main():
     st.set_page_config(page_title="Underwater Aesthetics", layout="wide")
 
-    # --- CSS 优化重点 ---
-    # 1. 隐藏 Header 和 Footer
-    # 2. 减少 block-container 的 padding-top，让内容尽量靠上
-    # 3. 减少各个组件之间的 gap
     st.markdown("""
         <style>
         header[data-testid="stHeader"] { display: none !important; }
+
+        /* 调整整体容器的上间距，尽量靠上 */
         .block-container { 
             padding-top: 1rem !important; 
             padding-bottom: 2rem !important; 
-            max-width: 95% !important; /* 让内容更宽，给图片更多空间 */
+            max-width: 95% !important; /* 宽屏模式 */
         }
-        div[data-testid="stThumbValue"], div[data-testid="stTickBarMin"], div[data-testid="stTickBarMax"] { opacity: 0 !important; display: none !important; }
-        .current-rating { font-weight: bold; color: #FF4B4B; }
 
-        /* 让列与列之间的间距变小 */
+        /* 隐藏原生数值显示 */
+        div[data-testid="stThumbValue"], div[data-testid="stTickBarMin"], div[data-testid="stTickBarMax"] { opacity: 0 !important; display: none !important; }
+
+        .current-rating { font-size: 1.1rem; font-weight: bold; color: #FF4B4B; margin-bottom: 5px; }
+
+        div[data-testid="stImage"] { display: flex; justify-content: center; }
+
+        /* 调整列间距 */
         div[data-testid="column"] { gap: 0.5rem; }
 
-        /* 调整按钮区域的间距 */
+        /* 调整按钮高度 */
         div.stButton > button {
             width: 100%;
             border-radius: 8px;
@@ -265,36 +261,34 @@ def main():
 
     current_img_rel_path = img_list[idx]
 
-    # --- 1. 图片显示区域 (修改点：变大) ---
+    # --- 1. 图片显示区域 (大图) ---
     try:
         full_image_url = CLOUD_BASE_URL + current_img_rel_path
 
-        # 修改：列比例改为 [1, 6, 1] 或者更大，让中间图片区域更宽
-        # 使用 use_container_width=True 替代固定 width=300
+        # 使用 [1, 10, 1] 比例让图片区域尽可能大
         col1, col2, col3 = st.columns([1, 10, 1])
         with col2:
+            # use_container_width=True 让图片撑满列宽
             st.image(full_image_url, use_container_width=True)
-            # 这里的 use_container_width=True 会让图片撑满 col2，
-            # 如果图片本来就大，就会显示得很大。
     except Exception as e:
         st.error(f"Error loading image: {e}")
 
-    # --- 分隔线 (保留这个为了区分图片和评分区) ---
+    # 分隔线
     st.markdown("---")
 
     # --- 2. 评分滑块区域 ---
     with st.container():
         c1, spacer1, c2, spacer2, c3 = st.columns([10, 1, 10, 1, 10])
-        with c1: render_blind_slider("1. 内容", "s_content", mark_content_touched)
+        with c1: render_blind_slider("1. 内容 (Content)", "s_content", mark_content_touched)
         with spacer1: st.empty()
-        with c2: render_blind_slider("2. 美学", "s_aesthetic", mark_aesthetic_touched)
+        with c2: render_blind_slider("2. 美学 (Aesthetics)", "s_aesthetic", mark_aesthetic_touched)
         with spacer2: st.empty()
-        with c3: render_blind_slider("3. 质量", "s_quality", mark_quality_touched)
+        with c3: render_blind_slider("3. 质量 (Quality)", "s_quality", mark_quality_touched)
 
-    # --- 修改点：移除了这里的 st.markdown("---") 虚线 ---
-    # 并在下方增加了少许间距控制（可选），让按钮紧贴滑块下方
+    # --- 这里移除了原来的 st.markdown("---") 虚线 ---
 
-    st.write("")  # 仅仅加一点微小的空白缓冲，代替巨大的虚线
+    # 增加一点点间距，避免按钮贴到刻度尺文字上
+    st.write("")
 
     # --- 按钮逻辑 ---
     def next_action():
@@ -304,7 +298,7 @@ def main():
             show_warning_dialog()
             return
 
-        with st.spinner("Saving..."):  # 简化提示文案减少跳动
+        with st.spinner("Saving..."):
             save_to_db(user_id, group_id_ui, current_img_rel_path,
                        st.session_state['s_content'],
                        st.session_state['s_aesthetic'],
@@ -312,14 +306,13 @@ def main():
 
         if st.session_state['current_index'] < len(img_list) - 1:
             st.session_state['current_index'] += 1
-            # 重置分数
             st.session_state['s_content'] = 50
             st.session_state['s_aesthetic'] = 50
             st.session_state['s_quality'] = 50
             st.session_state['touched_content'] = False
             st.session_state['touched_aesthetic'] = False
             st.session_state['touched_quality'] = False
-            st.rerun()  # 强制刷新以立即显示下一张
+            st.rerun()
         else:
             st.balloons()
 
@@ -328,14 +321,12 @@ def main():
             st.session_state['current_index'] -= 1
             st.rerun()
 
-    # --- 3. 按钮区域 (修改点：向上移动) ---
-    # 按钮直接紧跟在滑块容器下方
+    # --- 3. 按钮区域 (上移，紧跟滑块) ---
     b1, b2, b3 = st.columns([1, 2, 1])
     with b1:
         if idx > 0:
             st.button("⬅️ 上一张", on_click=prev_action, use_container_width=True)
     with b3:
-        # 下一张设为 Primary 颜色，更加显眼
         st.button("下一张 ➡️", on_click=next_action, type="primary", use_container_width=True)
 
 
