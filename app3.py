@@ -135,22 +135,30 @@ def save_to_db(user_id, group_id, img_path, s1, s2, s3):
             conn.close()
 
 
-# ================= 4. UI 组件封装 (Form版) =================
+# ================= 4. UI 组件封装 (Form版 + CSS修复) =================
 
 def render_blind_slider(label, key):
     """
     渲染去数字化的盲测滑块 - 适配 Form 模式
     """
-    st.markdown(f"#### {label}")
-
-    # 注意：在Form模式下，文字无法随拖动实时变化，这是为了流畅性做的妥协
-    # 我们这里只显示滑块和刻度
+    # 【核心修改点】：使用 HTML div + white-space: nowrap 强制文字不换行
+    st.markdown(f"""
+        <div style="
+            font-size: 1.1rem; 
+            font-weight: 600; 
+            white-space: nowrap; 
+            margin-bottom: 5px;
+            color: white; 
+        ">
+        {label}
+        </div>
+        """, unsafe_allow_html=True)
 
     val = st.slider(
         label, 0, 100,
         key=key,
         label_visibility="collapsed",
-        format=" "  # 隐藏数字
+        format=" "
     )
 
     # HTML 精准刻度尺
@@ -168,7 +176,6 @@ def main():
         <style>
         header[data-testid="stHeader"] { display: none !important; }
 
-        /* 隐藏滑块原生的数字气泡 */
         div[data-testid="stThumbValue"], 
         div[data-testid="stTickBarMin"], 
         div[data-testid="stTickBarMax"] { 
@@ -185,7 +192,6 @@ def main():
         div[data-testid="stImage"] { display: flex; justify-content: center; }
         div[data-testid="column"] { gap: 0.5rem; }
 
-        /* 调整按钮样式 */
         div.stButton > button {
             width: 100%;
             border-radius: 8px;
@@ -221,7 +227,6 @@ def main():
             start_idx = len(img_list) - 1
         st.session_state['current_index'] = start_idx
 
-        # 初始化分数，确保 session state 中有值
         if 's_content' not in st.session_state: st.session_state['s_content'] = 50
         if 's_aesthetic' not in st.session_state: st.session_state['s_aesthetic'] = 50
         if 's_quality' not in st.session_state: st.session_state['s_quality'] = 50
@@ -236,27 +241,24 @@ def main():
     current_img_rel_path = img_list[idx]
 
     # --- 1. 图片显示区域 ---
-    # 图片放在 Form 外部，避免不必要的重新加载
     try:
         full_image_url = CLOUD_BASE_URL + current_img_rel_path
 
-        # 宽屏适配：[1, 10, 1] 比例
         col1, col2, col3 = st.columns([1, 10, 1])
         with col2:
-            # 修复 use_container_width 警告，改用 width="stretch"
             st.image(full_image_url, width="stretch")
     except Exception as e:
         st.error(f"Error loading image: {e}")
 
     st.markdown("---")
 
-    # ================= 核心修改：Form 包裹区域 =================
-    # 将滑块和按钮放入 Form 中，阻断滑动时的自动刷新
+    # ================= Form 包裹区域 (解决卡顿) =================
     with st.form(key="rating_form"):
 
+        # 这里的列比例 [10, 1, 10, 1, 10]
+        # 配合上面的 white-space: nowrap 修改，可以保证标题不换行
         c1, spacer1, c2, spacer2, c3 = st.columns([10, 1, 10, 1, 10])
 
-        # 这里的滑块不再有 callbacks，滑动不会触发后台
         with c1:
             render_blind_slider("1. 内容 (Content)", "s_content")
         with spacer1:
@@ -268,28 +270,25 @@ def main():
         with c3:
             render_blind_slider("3. 质量 (Quality)", "s_quality")
 
-        st.write("")  # 间距
+        st.write("")
 
-        # --- 按钮区域 (作为 Form 的提交按钮) ---
+        # --- 按钮区域 ---
         b1, b2, b3 = st.columns([1, 2, 1])
 
         with b1:
             if idx > 0:
-                # 必须使用 form_submit_button
                 prev_clicked = st.form_submit_button("⬅️ 上一张", width="stretch")
             else:
                 prev_clicked = False
                 st.empty()
 
         with b3:
-            # 下一张也是提交按钮
             next_clicked = st.form_submit_button("下一张 ➡️", type="primary", width="stretch")
 
-    # ================= 逻辑处理区 (Form 提交后执行) =================
+    # ================= 逻辑处理区 =================
 
     if next_clicked:
         with st.spinner("Saving..."):
-            # 直接保存 session_state 中的值（Form 提交时已自动更新）
             save_to_db(user_id, group_id_ui, current_img_rel_path,
                        st.session_state['s_content'],
                        st.session_state['s_aesthetic'],
@@ -297,11 +296,10 @@ def main():
 
         if st.session_state['current_index'] < len(img_list) - 1:
             st.session_state['current_index'] += 1
-            # 重置分数
             st.session_state['s_content'] = 50
             st.session_state['s_aesthetic'] = 50
             st.session_state['s_quality'] = 50
-            st.rerun()  # 刷新进入下一张
+            st.rerun()
         else:
             st.balloons()
 
