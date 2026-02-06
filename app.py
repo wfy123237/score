@@ -11,13 +11,8 @@ CLOUD_BASE_URL = "https://score-1.oss-cn-beijing.aliyuncs.com/Image_3600/"
 
 
 # ================= 1. 数据库连接 (稳定版：移除缓存) =================
-
 def get_db_connection():
-    """
-    每次调用建立一个新的连接，用完自动关闭。
-    这是最稳定的方式，配合 st.form 不会卡顿。
-    """
-    # 从 Streamlit Secrets 读取配置
+    """每次调用建立一个新的连接，用完自动关闭"""
     try:
         db_config = st.secrets["connections"]["tidb"]
         return mysql.connector.connect(
@@ -26,8 +21,8 @@ def get_db_connection():
             password=db_config["password"],
             port=db_config["port"],
             database=db_config["database"],
-            autocommit=True,  # 自动提交
-            connection_timeout=10  # 设置超时防止卡死
+            autocommit=True,
+            connection_timeout=10
         )
     except Exception as e:
         st.error(f"数据库连接失败: {e}")
@@ -44,29 +39,15 @@ def init_db():
             c.execute('''
                       CREATE TABLE IF NOT EXISTS annotations
                       (
-                          user_id
-                          VARCHAR
-                      (
-                          50
-                      ),
-                          group_id VARCHAR
-                      (
-                          50
-                      ),
-                          image_name VARCHAR
-                      (
-                          255
-                      ),
+                          user_id VARCHAR(50),
+                          group_id VARCHAR(50),
+                          image_name VARCHAR(255),
                           score_content INT,
                           score_aesthetic INT,
                           score_quality INT,
                           timestamp DATETIME,
-                          PRIMARY KEY
-                      (
-                          user_id,
-                          image_name
+                          PRIMARY KEY (user_id, image_name)
                       )
-                          )
                       ''')
             c.close()
     except Exception as e:
@@ -76,12 +57,10 @@ def init_db():
             conn.close()
 
 
-# 每次启动时尝试初始化
 init_db()
 
 
 # ================= 2. 核心逻辑功能 =================
-
 def get_cloud_image_list(user_id, group_id_str):
     txt_file = "image_names.txt"
     if not os.path.exists(txt_file):
@@ -108,7 +87,8 @@ def get_completed_images(user_id):
     conn = None
     try:
         conn = get_db_connection()
-        if not conn: return set()
+        if not conn:
+            return set()
 
         c = conn.cursor()
         c.execute("SELECT image_name FROM annotations WHERE user_id = %s", (user_id,))
@@ -122,27 +102,44 @@ def get_completed_images(user_id):
             conn.close()
 
 
+def get_saved_scores(user_id, image_name):
+    """获取用户对指定图片已保存的评分，用于回退时恢复滑块值"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return 50, 50, 50
+
+        c = conn.cursor()
+        c.execute("""
+            SELECT score_content, score_aesthetic, score_quality 
+            FROM annotations 
+            WHERE user_id = %s AND image_name = %s
+        """, (user_id, image_name))
+        result = c.fetchone()
+        c.close()
+        # 如果有保存的评分则返回，否则返回默认值50
+        return result if result else (50, 50, 50)
+    except Exception:
+        return 50, 50, 50
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+
 def save_to_db(user_id, group_id, img_path, s1, s2, s3):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = None
     try:
         conn = get_db_connection()
-        if not conn: return False
+        if not conn:
+            return False
 
         c = conn.cursor()
         query = """
-                REPLACE \
-                INTO annotations 
-            (user_id, group_id, image_name, score_content, score_aesthetic, score_quality, timestamp)
-            VALUES ( \
-                %s, \
-                %s, \
-                %s, \
-                %s, \
-                %s, \
-                %s, \
-                %s \
-                ) \
+                REPLACE INTO annotations 
+                (user_id, group_id, image_name, score_content, score_aesthetic, score_quality, timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """
         values = (user_id, group_id, img_path, s1, s2, s3, timestamp)
         c.execute(query, values)
@@ -152,17 +149,16 @@ def save_to_db(user_id, group_id, img_path, s1, s2, s3):
         st.error(f"保存失败: {e}")
         return False
     finally:
-        # 【关键】确保每次都关闭连接，防止占用过多资源
         if conn and conn.is_connected():
             conn.close()
 
 
 # ================= 4. UI 组件封装 =================
-
-def render_blind_slider(label, key):
+def render_blind_slider(label, key, default_val=50):
     st.markdown(f"#### {label}")
     val = st.slider(
         label, 0, 100,
+        value=default_val,  # 新增：支持传入默认值（恢复已保存的评分）
         key=key,
         label_visibility="collapsed",
         format=" "
@@ -175,28 +171,21 @@ def render_blind_slider(label, key):
 
 
 # ================= 5. 主程序 =================
-
 def main():
-    # 1. 【修改】增加 initial_sidebar_state="expanded"，强制侧边栏默认就是打开的
     st.set_page_config(
         page_title="Underwater Aesthetics",
         layout="wide",
         initial_sidebar_state="expanded"
     )
 
-    # 2. 【修改】删除了隐藏 header 的那行 CSS，只保留隐藏滑块数字和调整间距的
     st.markdown("""
         <style>
-        /* 注意：我删掉了隐藏 header 的代码，现在箭头回来了 */
-
-        /* 隐藏滑块的数字 */
         div[data-testid="stThumbValue"], 
         div[data-testid="stTickBarMin"], 
         div[data-testid="stTickBarMax"] {
             opacity: 0 !important;
             display: none !important;
         }
-
         .current-rating { font-size: 1.1rem; font-weight: bold; color: #FF4B4B; margin-bottom: 5px; }
         .block-container { padding-top: 20px !important; padding-bottom: 2rem !important; }
         div[data-testid="stImage"] { display: flex; justify-content: center; }
@@ -215,12 +204,14 @@ def main():
         st.write("请在左侧侧边栏输入 ID 并选择分组。")
         return
 
+    # 会话状态初始化
     session_key = f"{user_id}_{group_id_ui}"
     if 'session_key' not in st.session_state or st.session_state['session_key'] != session_key:
         st.session_state['session_key'] = session_key
         img_list = get_cloud_image_list(user_id, group_id_ui)
         st.session_state['image_list'] = img_list
-        if not img_list: st.stop()
+        if not img_list:
+            st.stop()
 
         completed = get_completed_images(user_id)
         start_idx = 0
@@ -231,17 +222,20 @@ def main():
         if len(img_list) > 0 and start_idx == 0 and img_list[0] in completed:
             start_idx = len(img_list) - 1
         st.session_state['current_index'] = start_idx
-        st.session_state['default_val'] = 50
 
     img_list = st.session_state['image_list']
     idx = st.session_state['current_index']
 
+    # 所有图片完成的提示
     if idx >= len(img_list):
         st.success("🎉 本组实验已全部完成！")
         return
 
     current_img_rel_path = img_list[idx]
+    # 获取当前图片已保存的评分（回退时恢复滑块值）
+    saved_c, saved_a, saved_q = get_saved_scores(user_id, current_img_rel_path)
 
+    # 显示图片
     try:
         full_image_url = CLOUD_BASE_URL + current_img_rel_path
         col1, col2, col3 = st.columns([1, 1, 1])
@@ -252,23 +246,39 @@ def main():
 
     st.markdown("---")
 
-    # 使用表单模式，确保流畅不卡顿
+    # 评分表单
     with st.form(key="rating_form", clear_on_submit=True):
-
         c1, spacer1, c2, spacer2, c3 = st.columns([10, 1, 10, 1, 10])
-
-        with c1: render_blind_slider("1. 内容 (Content)", "score_c")
-        with spacer1: st.empty()
-        with c2: render_blind_slider("2. 美学 (Aesthetics)", "score_a")
-        with spacer2: st.empty()
-        with c3: render_blind_slider("3. 质量 (Quality)", "score_q")
+        with c1:
+            render_blind_slider("1. 内容 (Content)", "score_c", saved_c)
+        with spacer1:
+            st.empty()
+        with c2:
+            render_blind_slider("2. 美学 (Aesthetics)", "score_a", saved_a)
+        with spacer2:
+            st.empty()
+        with c3:
+            render_blind_slider("3. 质量 (Quality)", "score_q", saved_q)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # 按钮布局：上一张 + 提交/下一张
         b1, b2, b3 = st.columns([1, 1, 1])
+        with b1:
+            # 上一张按钮：仅当当前索引>0时显示
+            prev_btn = st.form_submit_button("⬅️ 上一张", use_container_width=True)
         with b2:
             submit_btn = st.form_submit_button("✅ 提交评分 & 下一张", type="primary", use_container_width=True)
+        with b3:
+            st.empty()  # 占位，保持布局对称
 
+    # 处理上一张逻辑
+    if prev_btn:
+        if idx > 0:
+            st.session_state['current_index'] -= 1
+            st.rerun()  # 重新渲染页面，显示上一张图片
+
+    # 处理提交/下一张逻辑
     if submit_btn:
         s1 = st.session_state.get("score_c", 50)
         s2 = st.session_state.get("score_a", 50)
@@ -278,7 +288,7 @@ def main():
             saved = save_to_db(user_id, group_id_ui, current_img_rel_path, s1, s2, s3)
 
         if saved:
-            if st.session_state['current_index'] < len(img_list) - 1:
+            if idx < len(img_list) - 1:
                 st.session_state['current_index'] += 1
                 st.rerun()
             else:
