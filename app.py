@@ -312,14 +312,12 @@ def main():
             st.session_state['touched_content'] = False
             st.session_state['touched_aesthetic'] = False
             st.session_state['touched_quality'] = False
-            st.rerun()
         else:
             st.balloons()
 
     def prev_action():
         if st.session_state['current_index'] > 0:
             st.session_state['current_index'] -= 1
-            st.rerun()
 
     # --- 3. 按钮区域 (上移，紧跟滑块) ---
     b1, b2, b3 = st.columns([1, 2, 1])
